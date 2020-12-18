@@ -1,0 +1,20 @@
+BasedOnStyle: WebKit
+AllowShortFunctionsOnASingleLine: Inline
+DerivePointerAlignment: true
+IndentCaseLabels: true
+SortIncludes: false
+SpaceAfterCStyleCast: true
+UseTab: Never
+BreakBeforeBraces: Custom
+BraceWrapping:
+    AfterClass: true
+    AfterControlStatement: false
+    AfterEnum: true
+    AfterFunction: true
+    AfterNamespace: true
+    AfterObjCDeclaration: false
+    AfterStruct: true
+    AfterUnion: true
+    BeforeCatch: false
+    BeforeElse: false
+    IndentBraces: false

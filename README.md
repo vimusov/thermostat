@@ -1,8 +1,8 @@
-# Что это?
+# What?
 
-Исходники прошивки термостата.
-Подробности см. в [статье](https://mysku.ru/blog/diy/83042.html).
+Filament dryer firmware sources.
+See the [article](https://mysku.ru/blog/diy/83042.html) for details.
 
-# Лицензия
+# License
 
 GPL.

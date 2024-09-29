@@ -3,10 +3,18 @@
 #include <DallasTemperature.h>
 #include <LiquidCrystal_I2C.h>
 
+// Использовать вместо энкодера отдельные кнопки.
+// #define USE_BUTTONS
+
+#ifdef USE_BUTTONS
+// Примерное время дребезга контактов кнопок, мс.
+#define BUTTONS_JITTER (10)
+#else
 // Примерное время дребезга контактов энкодера, мс.
 #define ENCODER_JITTER (5)
 // Таймаут на ожидание следующего события от энкодера, мс.
 #define ENCODER_TIMEOUT (350)
+#endif
 
 // Параметры длительности сигналов азбуки Морзе, мс. >:3
 #define DOT_LEN (500)
@@ -24,16 +32,16 @@
 #define BEEPER_PIN (11)
 // Пин твердотельного реле управления нагревателем.
 #define HEATER_PIN (12)
-// Пин сигналов от энкодера.
-#define ENCODER_PIN (A0)
+// Пин сигналов от энкодера/кнопок.
+#define USER_INPUT_PIN (A0)
 
-// Действие, произведённое энкодером.
-enum EncoderAction
+// Действие, произведённое энкодером/кнопками.
+enum UserInputAction
 {
     NoAction, // Бездействие.
-    ActionNext, // Вращение в одну сторону.
-    ActionPrev, // Вращение в другую сторону.
-    ActionConfirm, // Нажатие кнопки.
+    ActionNext, // Вращение в одну сторону/Следующее значение.
+    ActionPrev, // Вращение в другую сторону/Предыдущее значение.
+    ActionConfirm, // Нажатие кнопки (подтверждение выбора).
 };
 
 // Стадия (состояние) сушки.
@@ -101,8 +109,8 @@ volatile unsigned long seconds = 0;
 // Флаг, показывающий включен сейчас нагрев или выключен.
 // На дисплее отображается буквой 'H'.
 volatile bool heater_is_on = false;
-// Флаг, показывающий что есть событие от энкодера.
-volatile bool event_on_encoder = false;
+// Флаг, показывающий что есть событие от энкодера/кнопок.
+volatile bool input_event_occurred = false;
 // Текущая стадия сушки.
 volatile HeatingStage heating_stage = Idle;
 
@@ -113,12 +121,12 @@ ISR(TIMER1_COMPA_vect)
     refresh_screen = true;
 }
 
-// Обработчик прерывания с пина энкодера.
+// Обработчик прерывания с пина ADC.
 // Срабатывает по изменению напряжения
 // в любую сторону (уменьшение/увеличение).
 ISR(PCINT1_vect)
 {
-    event_on_encoder = true;
+    input_event_occurred = true;
 }
 
 // Сброс таймера.
@@ -235,36 +243,41 @@ void present_filament(void)
     screen.print("*      ");
 }
 
-// Чтение действия энкодера.
+// Чтение действия энкодера/кнопок.
 // Выполняется до тех пор, пока не определит действие,
 // игнорируя случайные срабатывания.
 // Значения настраиваются эмпирическим путём.
 // Текущие значения указаны для номиналов резисторов согласно схеме,
 // при точности резисторов 1%.
-EncoderAction read_action(void)
+UserInputAction read_action(void)
 {
-    int value = 0;
-    for (;;) {
-        value = analogRead(ENCODER_PIN);
-        if (value == 0)
-            return NoAction;
-        if (value > 840 && value < 850)
-            return ActionPrev;
-        if (value > 690 && value < 705)
-            return ActionNext;
-        if (value > 560 && value < 610)
-            return ActionConfirm;
-    }
+    int value = analogRead(USER_INPUT_PIN);
+    if (value > 840 && value < 850)
+        return ActionPrev;
+    if (value > 690 && value < 705)
+        return ActionNext;
+    if (value > 560 && value < 610)
+        return ActionConfirm;
+    return NoAction;
 }
 
-// Дожидается любого действия от энкодера и возвращает его.
-EncoderAction wait_for_action(void)
+#ifdef USE_BUTTONS
+UserInputAction process_buttons()
 {
-    // Ждём пока на энкодере произойдёт какое-либо действие.
-    while (!event_on_encoder)
-        delay(1);
-
-    const EncoderAction action = read_action();
+    UserInputAction action = read_action();
+    if (action == NoAction)
+        return NoAction;
+    // Выдерживаем паузу на дребезг.
+    // Если после этого значение не изменилось, считаем что кнопка нажата.
+    delay(BUTTONS_JITTER);
+    if (read_action() != action)
+        action = NoAction;
+    return action;
+}
+#else
+UserInputAction process_encoder()
+{
+    const UserInputAction action = read_action();
 
     // Если энкодер бездействует, то сразу же выходим.
     if (action == NoAction)
@@ -332,13 +345,29 @@ EncoderAction wait_for_action(void)
     else
         time_diff = millis() - time_begin;
     delay(time_diff * 2 + ENCODER_JITTER);
+}
+#endif // USE_BUTTONS
 
-    // Сбрасываем флаг, показывающий что от энкодера приходили события.
+// Дожидается любого действия от энкодера/кнопок и возвращает его.
+UserInputAction wait_for_action(void)
+{
+    // Ждём пока на ADC произойдёт какое-либо действие.
+    while (!input_event_occurred)
+        delay(1);
+
+    const UserInputAction action =
+#ifdef USE_BUTTONS
+        process_buttons();
+#else
+        process_encoder();
+#endif
+
+    // Сбрасываем флаг, показывающий что от ADC приходили события.
     // Это нужно для подавления дребезга контактов, событий могло прийти
     // множество, но одно мы уже обработали. Остальные будут обработаны
     // позже.
     noInterrupts();
-    event_on_encoder = false;
+    input_event_occurred = false;
     interrupts();
 
     return action;
@@ -354,7 +383,7 @@ void choose_filament(void)
     present_filament();
 
     for (;;) {
-        EncoderAction action = wait_for_action();
+        UserInputAction action = wait_for_action();
         if (action == ActionConfirm)
             return;
         if (action == ActionNext) {
@@ -495,7 +524,7 @@ void setup()
     TIMSK1 |= (1 << OCIE1A);
     interrupts();
 
-    // Настраиваем прерывания от пина, куда подключен энкодер.
+    // Настраиваем прерывания от пина, куда подключен энкодер/кнопки.
     // Подробнее см.:
     // https://tsibrov.blogspot.com/2019/06/arduino-interrupts-part2.html
     PCICR |= (1 << PCIE1);
@@ -518,7 +547,7 @@ void loop()
     }
 
     // Если идёт сушка и время подошло к концу, показываем сообщение,
-    // пищим, ожидаем нажатия на кнопку энкодера и снова показываем
+    // пищим, ожидаем нажатия на энкодер/кнопку и снова показываем
     // меню выбора пластика.
     if (heating_stage == Working && seconds > filament->time_sec) {
         turn_off();
